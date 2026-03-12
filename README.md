@@ -75,16 +75,24 @@ Patient_Safety/
 
 ### Step 3: SFT 数据构造
 - **如何做**: 基于医疗安全场景构造问答对
+- **方式一（模板）**: 使用 `data/scripts/build_sft_data.py` 从模板生成
+- **方式二（种子扩展）**: 使用种子 JSONL 生成与清洗：
+  - **prompts.py** — 四类 prompt 模板：`general` / `medication` / `boundary` / `high_risk`
+  - **generate_sft.py** — 读取种子 JSONL，生成新样本（可扩展条数）
+  - **clean_sft.py** — 规则清洗与去重
+  - **sample_review.py** — 按类别随机抽样，便于人工抽检
 - **数据量**: 通常 1K-10K 条（Qwen3-0.6B 较小，可从 1K 开始）
-- 数据格式:
+- 种子数据格式（与 `medical_sft_100_english.jsonl` 一致）:
   ```json
-  {
-    "instruction": "医疗安全问题",
-    "input": "上下文（可选）",
-    "output": "安全、准确的回答"
-  }
+  {"id": "sft_0001", "category": "general", "messages": [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}
   ```
-- 脚本: `data/scripts/build_sft_data.py`
+- 示例命令（种子在 Downloads）:
+  ```bash
+  python data/scripts/generate_sft.py --seed /Users/xieyun/Downloads/medical_sft_100_english.jsonl --out data/processed/sft_generated.jsonl
+  python data/scripts/clean_sft.py --input data/processed/sft_generated.jsonl --output data/processed/sft_cleaned.jsonl
+  python data/scripts/sample_review.py --input data/processed/sft_cleaned.jsonl --output data/review/sft_review.jsonl --per-category 5
+  ```
+- 脚本: `data/scripts/build_sft_data.py`、`data/scripts/generate_sft.py`、`data/scripts/clean_sft.py`、`data/scripts/sample_review.py`、`data/scripts/prompts.py`
 
 ### Step 4: SFT 训练
 - **参数冻结**: SFT 默认全参数训练，会改变原始参数

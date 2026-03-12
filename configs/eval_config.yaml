@@ -29,14 +29,15 @@ generation:
 
 # Benchmark Settings
 benchmark:
-  name: "medical_safety"      # 可替换为实际的 benchmark 名称
-  data_path: "evaluation/benchmarks/medical_safety.json"
-  num_samples: -1             # -1 表示全部
+  name: "patientsafetybench"      # PatientSafetyBench - 微软医疗安全 benchmark
+  data_path: "evaluation/benchmarks/patientsafetybench_eval.json"
+  num_samples: -1                 # -1 表示全部 (当前 95 条)
+  language: "en"                  # 当前为英文数据
   
-  # 候选 Benchmarks (需自行准备数据):
-  # - medical_safety: 医疗安全场景问答
-  # - safety_bench: 通用安全 benchmark
-  # - c_eval_safety: C-Eval 安全相关子集
+  # 候选 Benchmarks:
+  # - patientsafetybench_eval.json: 评估集 (95条，英文)
+  # - patientsafetybench_train.json: 训练参考集 (371条，英文)
+  # - patientsafetybench_full.json: 完整数据集 (466条，英文)
 
 # GPT-4 Judge Settings
 gpt4_judge:
