@@ -1,0 +1,78 @@
+# DPO (Direct Preference Optimization) Configuration
+# 基于 SFT 模型的偏好优化配置
+
+# Model Settings
+model:
+  # DPO 需要基于 SFT 模型继续训练
+  base_model: "models/sft"  # SFT 后的模型路径
+  model_max_length: 2048
+  use_lora: true            # 可在 SFT LoRA 基础上继续训练
+
+# LoRA Settings
+lora:
+  r: 16
+  lora_alpha: 32
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  lora_dropout: 0.05
+  bias: "none"
+  task_type: "CAUSAL_LM"
+
+# DPO Specific Settings
+dpo:
+  beta: 0.1                 # DPO 温度参数，控制偏好强度
+  # beta 越小，模型越倾向于选择 chosen；越大越保守
+  # 医疗场景建议 0.1-0.3
+  
+  loss_type: "sigmoid"      # DPO 损失类型: sigmoid / hinge / ipo
+  label_smoothing: 0.0      # 标签平滑
+  
+  # 参考模型设置（通常就是 base_model）
+  reference_model: "models/sft"
+  
+  # 防止 Reward Hacking
+  max_length: 2048
+  max_prompt_length: 1024
+  max_target_length: 1024
+
+# Training Settings
+training:
+  output_dir: "models/dpo"
+  num_train_epochs: 1         # DPO 通常 1-2 轮即可
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  gradient_accumulation_steps: 8
+  learning_rate: 5.0e-5       # DPO 学习率通常比 SFT 小
+  weight_decay: 0.01
+  warmup_ratio: 0.1
+  lr_scheduler_type: "cosine"
+  save_steps: 50
+  save_total_limit: 3
+  logging_steps: 5
+  eval_steps: 25
+  evaluation_strategy: "steps"
+  gradient_checkpointing: true
+  fp16: true
+  seed: 42
+  
+  # DPO 特定训练参数
+  remove_unused_columns: false  # DPO 需要保留特定列
+
+# Data Settings
+data:
+  train_file: "data/processed/dpo_train.json"
+  eval_file: "data/processed/dpo_eval.json"
+  # DPO 数据格式: {prompt, chosen, rejected}
+
+# Logging
+logging:
+  use_wandb: false
+  wandb_project: "patient-safety-dpo"
+  wandb_run_name: "qwen3-0.6b-dpo"
+  report_to: ["tensorboard"]

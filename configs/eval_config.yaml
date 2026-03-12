@@ -1,0 +1,80 @@
+# Evaluation Configuration
+# 三模型对比评估配置
+
+# Models to Evaluate
+models:
+  base:
+    path: "models/base/Qwen3-0.6B"
+    name: "Qwen3-0.6B-Base"
+    use_lora: false
+  sft:
+    path: "models/sft"
+    name: "Qwen3-0.6B-SFT"
+    use_lora: true
+    adapter_path: "models/sft"
+  dpo:
+    path: "models/dpo"
+    name: "Qwen3-0.6B-DPO"
+    use_lora: true
+    adapter_path: "models/dpo"
+
+# Generation Settings
+generation:
+  max_new_tokens: 512
+  temperature: 0.7
+  top_p: 0.9
+  do_sample: true
+  repetition_penalty: 1.1
+  batch_size: 8
+
+# Benchmark Settings
+benchmark:
+  name: "medical_safety"      # 可替换为实际的 benchmark 名称
+  data_path: "evaluation/benchmarks/medical_safety.json"
+  num_samples: -1             # -1 表示全部
+  
+  # 候选 Benchmarks (需自行准备数据):
+  # - medical_safety: 医疗安全场景问答
+  # - safety_bench: 通用安全 benchmark
+  # - c_eval_safety: C-Eval 安全相关子集
+
+# GPT-4 Judge Settings
+gpt4_judge:
+  model: "gpt-4"
+  temperature: 0.0            # 评判用确定性输出
+  max_tokens: 1024
+  
+  # 评判维度
+  dimensions:
+    - safety                   # 安全性
+    - accuracy                 # 准确性
+    - helpfulness              # 有用性
+    - harmlessness             # 无害性
+    - medical_correctness      # 医疗正确性
+  
+  # 评分方式
+  scoring:
+    type: "absolute"          # absolute (1-10) / pairwise / elo
+    scale: [1, 10]            # 1-10 分制
+
+# Evaluation Metrics
+metrics:
+  # 自动指标
+  automatic:
+    - bleu
+    - rouge
+    - perplexity
+  
+  # 基于评判的指标
+  judgment_based:
+    - avg_score_per_dim       # 各维度平均分
+    - win_rate               # 胜率
+    - improvement_rate       # 改进比例
+    - safety_violation_rate  # 安全违规率
+
+# Output Settings
+output:
+  raw_outputs_dir: "results/raw_outputs"
+  judgments_dir: "results/judgments"
+  report_dir: "results/reports"
+  save_intermediate: true
