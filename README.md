@@ -34,11 +34,17 @@ Patient_Safety/
 │   └── eval_config.yaml         # 评估配置
 ├── data/                        # 数据处理目录
 │   ├── raw/                     # 原始数据存放
-│   ├── processed/               # 处理后数据
-│   └── scripts/                 # 数据构造脚本
-│       ├── build_sft_data.py    # SFT 数据构造
+│   ├── processed/               # 处理后数据（种子、生成样本、清洗结果、最终 sft_train_v1/*.jsonl 等）
+│   └── scripts/                 # 数据构造与辅助脚本
+│       ├── build_sft_data.py    # SFT 数据构造（模板示例，仅早期使用）
 │       ├── build_dpo_data.py    # DPO 数据构造
-│       └── prepare_benchmark.py # Benchmark 准备
+│       ├── prepare_benchmark.py # Benchmark 准备
+│       ├── prompts.py           # 四类 Prompt 模板（general / medication / boundary / high_risk）
+│       ├── generate_sft.py      # 从种子 JSONL 扩写 SFT 数据（支持并发、清洗辅助）
+│       ├── clean_sft.py         # 规则清洗与去重
+│       ├── sample_review.py     # 按类别抽样，人工质检
+│       ├── split_dataset.py     # 按簇分层切分 train/val（避免泄漏）
+│       └── run_local_infer.py   # 本地推理脚本（base / SFT / DPO 模型在 val / benchmark 上对比）
 ├── models/                      # 模型存储
 │   ├── base/                    # Base 模型 (Qwen3-0.6B)
 │   ├── sft/                     # SFT 模型输出
@@ -73,28 +79,44 @@ Patient_Safety/
 - 候选: MedSafety, SafetyBench, C-Eval 安全相关子集等
 - 位置: `evaluation/benchmarks/`
 
-### Step 3: SFT 数据构造
-- **如何做**: 基于医疗安全场景构造问答对
-- **方式一（模板）**: 使用 `data/scripts/build_sft_data.py` 从模板生成
-- **方式二（种子扩展）**: 使用种子 JSONL 生成与清洗：
-  - **prompts.py** — 四类 prompt 模板：`general` / `medication` / `boundary` / `high_risk`
-  - **generate_sft.py** — 读取种子 JSONL，生成新样本（可扩展条数）
-  - **clean_sft.py** — 规则清洗与去重
-  - **sample_review.py** — 按类别随机抽样，便于人工抽检
-- **数据量**: 通常 1K-10K 条（Qwen3-0.6B 较小，可从 1K 开始）
-- 种子数据格式（与 `medical_sft_100_english.jsonl` 一致）:
+### Step 3: SFT 数据构造（种子扩写 + 清洗）
+- **如何做**: 基于医疗安全对齐目标，从小规模人工标注种子出发，扩写成约 3K 条高质量 SFT 数据
+- **核心脚本**：
+  - `data/scripts/prompts.py`  
+    - 定义四类 Prompt 模板：`general` / `medication` / `boundary` / `high_risk`
+    - 加入统一 system prompt、输出格式约束、多样性约束和负向约束
+  - `data/scripts/generate_sft.py`  
+    - 读取种子 JSONL（如 `medical_sft_100_english.jsonl`），调用教师模型（Qwen 系）并发扩写
+    - 支持：并发数 `--concurrency`、每 seed 多条 `--n-per-seed`、自动去重、错误日志、general 触发词标记等
+  - `data/scripts/clean_sft.py`  
+    - 规则清洗与去重：过滤空内容、过短回答、明显 unsafe 模式；对完全重复 user/assistant 进行去重
+  - `data/scripts/sample_review.py`  
+    - 按类别随机抽样，便于人工检查每轮生成质量
+- **数据量**: 当前版本约 3K 条（`data/processed/sft_train_v1.jsonl`）
+- **种子数据格式**（与 `medical_sft_100_english.jsonl` 一致）:
   ```json
   {"id": "sft_0001", "category": "general", "messages": [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}
   ```
-- 示例命令（种子在 Downloads）:
+- 示例命令（种子在 Downloads，单轮小规模扩写）:
   ```bash
   python data/scripts/generate_sft.py --seed /Users/xieyun/Downloads/medical_sft_100_english.jsonl --out data/processed/sft_generated.jsonl
   python data/scripts/clean_sft.py --input data/processed/sft_generated.jsonl --output data/processed/sft_cleaned.jsonl
   python data/scripts/sample_review.py --input data/processed/sft_cleaned.jsonl --output data/review/sft_review.jsonl --per-category 5
   ```
-- 脚本: `data/scripts/build_sft_data.py`、`data/scripts/generate_sft.py`、`data/scripts/clean_sft.py`、`data/scripts/sample_review.py`、`data/scripts/prompts.py`
+  在正式版本中，我们多轮扩写 + 人工删减，最终得到：
+  - 原始大池：`data/processed/sft_pool_v5_merged.jsonl`（用于溯源）
+  - 删除清单：`data/processed/sft_trimmed_ids.txt`（便于复现筛选过程）
+  - 最终训练池：`data/processed/sft_train_v1.jsonl`（2937 条）
 
-### Step 4: SFT 训练
+### Step 4: SFT 划分与训练
+- **数据划分**：
+  - 使用 `data/scripts/split_dataset.py` 对 `sft_train_v1.jsonl` 做按簇分层切分：
+    - 簇定义：完全相同 `(user, assistant)` 的样本始终在同一侧
+    - 目标：约 2686 条 train + 251 条 val，按类别比例分层
+  - 生成文件：
+    - `data/processed/sft_train_v1.train.jsonl`
+    - `data/processed/sft_train_v1.val.jsonl`
+- **SFT 训练**：
 - **参数冻结**: SFT 默认全参数训练，会改变原始参数
 - **与 LoRA 关系**: 
   - 全参数 SFT: 修改所有参数
@@ -125,8 +147,25 @@ Patient_Safety/
 - 输出位置: `models/dpo/`
 
 ### Step 7: 评估对比
-- 并发运行 Base / SFT / DPO 三个模型
-- 使用 GPT-4 作为评判器
+- 并发运行 Base / SFT / DPO 三个模型，在统一的 benchmark / SFT val 上对比：
+  - 本地推理：`data/scripts/run_local_infer.py`
+    - 示例：在 SFT val 上跑 base 模型
+      ```bash
+      python data/scripts/run_local_infer.py \
+        --model-path /Users/xieyun/models/Qwen3-0.6B \
+        --input data/processed/sft_train_v1.val.jsonl \
+        --output data/processed/base_qwen3_0.6b_sft_val_outputs.jsonl \
+        --input-format sft
+      ```
+    - 示例：在 PatientSafetyBench 上跑 base 模型
+      ```bash
+      python data/scripts/run_local_infer.py \
+        --model-path /Users/xieyun/models/Qwen3-0.6B \
+        --input evaluation/benchmarks/PatientSafetyBench/patientsafetybench.jsonl \
+        --output data/processed/base_qwen3_0.6b_patientsafetybench_full_outputs.jsonl \
+        --input-format plain
+      ```
+- 使用 GPT-4 作为评判器，对比 Base / SFT / DPO 输出
 - 脚本: `evaluation/run_benchmark.py`, `evaluation/gpt4_judge.py`
 
 ### Step 8: 指标量化
